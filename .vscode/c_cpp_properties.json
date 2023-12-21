@@ -1,0 +1,19 @@
+{
+    "configurations": [
+        {
+            "name": "Parallel",
+            "includePath": [
+                "${workspaceFolder}/par/**"
+            ],
+            "compilerPath": "/usr/local/cuda-12.3/bin/nvcc"
+        },
+        {
+            "name": "Sequential",
+            "includePath": [
+                "${workspaceFolder}/seq/**"
+            ],
+            "compilerPath": "/usr/local/cuda-12.3/bin/nvcc"
+        }
+    ],
+    "version": 4
+}

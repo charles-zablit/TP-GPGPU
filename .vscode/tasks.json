@@ -1,0 +1,25 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "Build Parallel (Debug)",
+            "group": "build",
+            "type": "shell",
+            "command": "make debug",
+            "problemMatcher": "$nvcc",
+            "options": {
+                "cwd": "${workspaceFolder}/par/"
+            },
+        },
+        {
+            "label": "Build Parallel",
+            "group": "build",
+            "type": "shell",
+            "command": "make",
+            "problemMatcher": "$nvcc",
+            "options": {
+                "cwd": "${workspaceFolder}/par/"
+            },
+        },
+    ]
+}
