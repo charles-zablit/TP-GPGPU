@@ -29,6 +29,19 @@ int main(int argc, char *argv[])
     byte *test_label = read_labels("/home/charles/Developer/TP-GPGPU/t10k-labels-idx1-ubyte", &ntest);
     log_debug("Done reading files");
 
+    image *d_train_img;
+    byte *d_train_label;
+    image *d_test_img;
+    byte *d_test_label;
+    cudaMalloc((void **)&d_train_img, sizeof(image) * datasize);
+    cudaMalloc((void **)&d_train_label, sizeof(byte) * datasize);
+    cudaMemcpy(d_train_img, train_img, sizeof(image) * datasize, cudaMemcpyHostToDevice);
+    cudaMemcpy(d_train_label, train_label, sizeof(byte) * datasize, cudaMemcpyHostToDevice);
+    cudaMalloc((void **)&d_test_img, sizeof(image) * ntest);
+    cudaMalloc((void **)&d_test_label, sizeof(byte) * ntest);
+    cudaMemcpy(d_test_img, test_img, sizeof(image) * ntest, cudaMemcpyHostToDevice);
+    cudaMemcpy(d_test_label, test_label, sizeof(byte) * ntest, cudaMemcpyHostToDevice);
+
     log_debug("Creating neural network");
     ann_t *nn;
     double alpha = 0.05;
@@ -40,7 +53,7 @@ int main(int argc, char *argv[])
     print_nn(nn);
 #endif
 
-    log_info("starting accuracy %lf", accuracy(test_img, test_label, ntest, minibatch_size, nn));
+    log_info("starting accuracy %lf", accuracy(d_test_img, d_test_label, test_label, ntest, minibatch_size, nn));
 
     unsigned *shuffled_idx = (unsigned *)malloc(datasize * sizeof(unsigned));
     double *x = (double *)malloc(28 * 28 * minibatch_size * sizeof(double));
@@ -55,17 +68,13 @@ int main(int argc, char *argv[])
 
         for (int i = 0; i < datasize - minibatch_size; i += minibatch_size)
         {
-            populate_minibatch(x, y, shuffled_idx + i, minibatch_size, train_img, 28 * 28, train_label, datasize);
-            cudaMemcpy(nn->layers[0]->d_activations->m, x, 28 * 28 * minibatch_size * sizeof(double), cudaMemcpyHostToDevice);
-            kernelRetchk;
+            gpuPopulateMinibatch(nn->layers[0]->d_activations->m, out->m, shuffled_idx + i, minibatch_size, d_train_img, 28 * 28, d_train_label, datasize);
             forward(nn);
-            cudaMemcpy(out->m, y, 10 * minibatch_size * sizeof(double), cudaMemcpyHostToDevice);
-            kernelRetchk;
             backward(nn, out);
         }
-        log_info("epoch %d accuracy %lf", epoch, accuracy(test_img, test_label, ntest, minibatch_size, nn));
+        log_info("epoch %d accuracy %lf", epoch, accuracy(d_test_img, d_test_label, test_label, ntest, minibatch_size, nn));
     }
-    log_info("ending accuracy %lf", accuracy(test_img, test_label, ntest, minibatch_size, nn));
+    log_info("ending accuracy %lf", accuracy(d_test_img, d_test_label, test_label, ntest, minibatch_size, nn));
 
     free(x);
     free(y);
