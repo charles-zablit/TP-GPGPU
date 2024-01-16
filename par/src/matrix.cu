@@ -248,12 +248,22 @@ void matrix_function(matrix_t *d_m, bool prime, matrix_t *d_res)
 
 __global__ void matrix_transpose_kernel(double *A, double *B, int nb_rows, int nb_cols)
 {
-    int row = blockIdx.x * blockDim.x + threadIdx.x;
-    int col = blockIdx.y * blockDim.y + threadIdx.y;
+    __shared__ float s[THREADS_PER_BLOCK][THREADS_PER_BLOCK + 1];
 
-    if (row < nb_rows && col < nb_cols)
+    int row = blockIdx.x * THREADS_PER_BLOCK + threadIdx.x;
+    int col = blockIdx.y * THREADS_PER_BLOCK + threadIdx.y;
+    if ((row < nb_rows) && (col < nb_cols))
     {
-        B[row * nb_cols + col] = A[col * nb_rows + row];
+        s[threadIdx.y][threadIdx.x] = A[col * nb_rows + row];
+    }
+
+    __syncthreads();
+
+    row = blockIdx.y * THREADS_PER_BLOCK + threadIdx.x;
+    col = blockIdx.x * THREADS_PER_BLOCK + threadIdx.y;
+    if ((row < nb_cols) && (col < nb_rows))
+    {
+        B[col * nb_cols + row] = s[threadIdx.x][threadIdx.y];
     }
 }
 
