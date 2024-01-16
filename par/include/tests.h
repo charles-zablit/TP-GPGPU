@@ -1,6 +1,6 @@
 #pragma once
 
-void test_matrix_dot();
+void test_matrix_gemm();
 
 void test_hadamard_product();
 

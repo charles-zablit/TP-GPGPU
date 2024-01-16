@@ -10,7 +10,7 @@
 #include <string.h>
 #include <time.h>
 
-void test_matrix_dot()
+void test_matrix_gemm()
 {
     printf("----------------\n");
     printf("Dot product test\n");
@@ -39,7 +39,7 @@ void test_matrix_dot()
 
     matrix_t *h_m3 = alloc_matrix(n, m);
     matrix_t *d_m3 = cuda_alloc_matrix(n, m);
-    matrix_dot(d_m1, d_m2, d_m3);
+    matrix_gemm(d_m1, d_m2, d_m3);
     cuda_print_matrix(d_m3, false);
     matrix_cudaMemcpy(h_m3, d_m3, cudaMemcpyDeviceToHost);
 
@@ -244,7 +244,7 @@ void test_matrix_minus()
 
 int run_tests()
 {
-    test_matrix_dot();
+    test_matrix_gemm();
     test_hadamard_product();
     test_matrix_scalar();
     test_matrix_transpose();

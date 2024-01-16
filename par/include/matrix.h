@@ -42,9 +42,9 @@ __global__ void matrix_minus_inplace(double *A, double *B, int nb_rows, int nb_c
 
 void matrix_minus_inplace(matrix_t *d_m1, matrix_t *d_m2);
 
-__global__ void matrix_dot_kernel(double *A, double *B, double *C, int nb_rows_A, int nb_cols_A, int nb_cols_B);
+__global__ void matrix_gemm_kernel(double *A, double *B, double *C, float alpha, float beta, int nb_rows_A, int nb_cols_A, int nb_cols_B);
 
-void matrix_dot(matrix_t *d_m1, matrix_t *d_m2, matrix_t *d_res);
+void matrix_gemm(matrix_t *d_m1, matrix_t *d_m2, matrix_t *d_res, float alpha = 1.0, float beta = 0.0);
 
 __global__ void matrix_function_kernel(double *A, double *B, bool prime, int numRows, int numColumns);
 

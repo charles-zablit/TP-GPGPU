@@ -6,6 +6,7 @@
 
 #define MIN(a, b) (((a) < (b)) ? (a) : (b))
 #define MAX(a, b) (((a) > (b)) ? (a) : (b))
+#define CEIL_DIV(M, N) (((M) + (N)-1) / (N))
 
 matrix_t *cuda_alloc_matrix(unsigned rows, unsigned columns)
 {
@@ -182,40 +183,43 @@ void matrix_minus_inplace(matrix_t *d_m1, matrix_t *d_m2)
     kernelRetchk;
 }
 
-__global__ void matrix_dot_kernel(double *A, double *B, double *C, int nb_rows_A, int nb_cols_A, int nb_cols_B)
+__global__ void matrix_gemm_kernel(double *A, double *B, double *C, float alpha, float beta, int nb_rows_A, int nb_cols_A, int nb_rows_B)
 {
-    int row = blockIdx.y * blockDim.y + threadIdx.y;
-    int col = blockIdx.x * blockDim.x + threadIdx.x;
+    // global memory coalescing in thread assignments
+    // see: https://siboehm.com/articles/22/CUDA-MMM#:~:text=Kernel%202%3A%20Global%20Memory%20Coalescing
+    const unsigned cRow = blockIdx.x * THREADS_PER_BLOCK + (threadIdx.x / THREADS_PER_BLOCK);
+    const unsigned cCol = blockIdx.y * THREADS_PER_BLOCK + (threadIdx.x % THREADS_PER_BLOCK);
 
-    if (row < nb_rows_A && col < nb_cols_B)
+    if (cRow < nb_rows_A && cCol < nb_rows_B)
     {
-        double sum = 0;
-        for (int i = 0; i < nb_cols_A; i++)
+        float tmp = 0.0;
+        for (int i = 0; i < nb_cols_A; ++i)
         {
-            sum += A[row * nb_cols_A + i] * B[i * nb_cols_B + col];
+            tmp += A[cRow * nb_cols_A + i] * B[i * nb_rows_B + cCol];
         }
-        C[row * nb_cols_B + col] = sum;
+        C[cRow * nb_rows_B + cCol] = alpha * tmp + beta * C[cRow * nb_rows_B + cCol];
     }
 }
 
-void matrix_dot(matrix_t *d_m1, matrix_t *d_m2, matrix_t *d_res)
+void matrix_gemm(matrix_t *d_m1, matrix_t *d_m2, matrix_t *d_res, float alpha, float beta)
 {
     assert((d_m1->columns == d_m2->rows) &&
            (d_m1->rows == d_res->rows) &&
            (d_m2->columns == d_res->columns));
 
-    dim3 threadsPerBlock(THREADS_PER_BLOCK, THREADS_PER_BLOCK);
-    dim3 blocksPerGrid((d_res->columns + threadsPerBlock.x - 1) / threadsPerBlock.x,
-                       (d_res->rows + threadsPerBlock.y - 1) / threadsPerBlock.y);
+    // global memory coalescing in thread assignments
+    // see: https://siboehm.com/articles/22/CUDA-MMM#:~:text=Kernel%202%3A%20Global%20Memory%20Coalescing
+    dim3 threadsPerBlock(THREADS_PER_BLOCK * THREADS_PER_BLOCK);
+    dim3 blocksPerGrid(CEIL_DIV(d_m1->rows, THREADS_PER_BLOCK), CEIL_DIV(d_m2->columns, THREADS_PER_BLOCK));
 
-    matrix_dot_kernel<<<blocksPerGrid, threadsPerBlock>>>(d_m1->m, d_m2->m, d_res->m, d_m1->rows, d_m1->columns, d_m2->columns);
+    matrix_gemm_kernel<<<blocksPerGrid, threadsPerBlock>>>(d_m1->m, d_m2->m, d_res->m, alpha, beta, d_m1->rows, d_m1->columns, d_m2->columns);
     kernelRetchk;
 }
 
 __global__ void matrix_function_kernel(double *A, double *B, bool prime, int numRows, int numColumns)
 {
-    int row = blockIdx.y * blockDim.y + threadIdx.y;
-    int col = blockIdx.x * blockDim.x + threadIdx.x;
+    const unsigned row = blockIdx.y * blockDim.y + threadIdx.y;
+    const unsigned col = blockIdx.x * blockDim.x + threadIdx.x;
 
     if (row < numRows && col < numColumns)
     {
@@ -268,8 +272,9 @@ void matrix_transpose(matrix_t *d_m, matrix_t *d_res)
 
 __global__ void matrix_scalar_kernel(double *A, double s, int numRows, int numColumns)
 {
-    int row = blockIdx.y * blockDim.y + threadIdx.y;
-    int col = blockIdx.x * blockDim.x + threadIdx.x;
+    const unsigned row = blockIdx.y * blockDim.y + threadIdx.y;
+    const unsigned col = blockIdx.x * blockDim.x + threadIdx.x;
+
     if (row < numRows && col < numColumns)
     {
         A[row * numColumns + col] *= s;
