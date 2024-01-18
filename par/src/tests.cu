@@ -21,7 +21,7 @@ void matrix_dot_ref(matrix_t *m1, matrix_t *m2, matrix_t *res)
         for (int col = 0; col < m2->columns; col++)
         {
             int idx = col + row * m2->columns;
-            double var = 0.0;
+            __half var = 0.0;
 
             for (int ii = 0; ii < m1->columns; ii++)
             {
@@ -128,7 +128,7 @@ void test_hadamard_product()
 
     for (int i = 0; i < n * m; i++)
     {
-        assert(h_m3->m[i] == (i + 1) * (i + 1));
+        assert(h_m3->m[i] == (__half)((i + 1) * (i + 1)));
     }
 
     free_matrix(h_m1);
@@ -137,37 +137,6 @@ void test_hadamard_product()
     cuda_free_matrix(d_m1);
     cuda_free_matrix(d_m2);
     cuda_free_matrix(d_m3);
-    printf("---\n");
-    printf("OK\n");
-    printf("---\n");
-}
-
-void test_matrix_scalar()
-{
-    printf("-------------------\n");
-    printf("Scalar product test\n");
-    printf("-------------------\n");
-    unsigned n = 50;
-    matrix_t *h_m1 = alloc_matrix(n, n);
-    matrix_t *d_m1 = cuda_alloc_matrix(n, n);
-    for (int i = 0; i < n * n; i++)
-    {
-        h_m1->m[i] = i + 1;
-    }
-    matrix_cudaMemcpy(d_m1, h_m1, cudaMemcpyHostToDevice);
-    cuda_print_matrix(d_m1, false);
-
-    matrix_scalar(d_m1, 10.0);
-    cuda_print_matrix(d_m1, false);
-    matrix_cudaMemcpy(h_m1, d_m1, cudaMemcpyDeviceToHost);
-
-    for (int i = 0; i < n * n; i++)
-    {
-        assert(h_m1->m[i] == (i + 1) * 10.0);
-    }
-
-    free_matrix(h_m1);
-    cuda_free_matrix(d_m1);
     printf("---\n");
     printf("OK\n");
     printf("---\n");
@@ -195,10 +164,10 @@ void test_matrix_transpose()
     cuda_print_matrix(d_m2, false);
     matrix_cudaMemcpy(h_m2, d_m2, cudaMemcpyDeviceToHost);
 
-    assert(h_m2->m[0] == 1.0);
-    assert(h_m2->m[1] == 3.0);
-    assert(h_m2->m[2] == 2.0);
-    assert(h_m2->m[3] == 4.0);
+    assert(h_m2->m[0] == (__half)1.0);
+    assert(h_m2->m[1] == (__half)3.0);
+    assert(h_m2->m[2] == (__half)2.0);
+    assert(h_m2->m[3] == (__half)4.0);
 
     free_matrix(h_m1);
     free_matrix(h_m2);
@@ -232,7 +201,7 @@ void test_matrix_sum()
 
     for (int i = 0; i < n * m; i++)
     {
-        assert(h_m2->m[i] == 2.0 * (i + 1));
+        assert(h_m2->m[i] == (__half)(2.0 * (i + 1)));
     }
 
     free_matrix(h_m1);
@@ -267,7 +236,7 @@ void test_matrix_minus()
 
     for (int i = 0; i < n * m; i++)
     {
-        assert(h_m2->m[i] == 0.0);
+        assert(h_m2->m[i] == (__half)0.0);
     }
 
     free_matrix(h_m1);
@@ -283,7 +252,6 @@ int run_tests()
 {
     test_matrix_gemm();
     test_hadamard_product();
-    test_matrix_scalar();
     test_matrix_transpose();
     test_matrix_sum();
     test_matrix_minus();

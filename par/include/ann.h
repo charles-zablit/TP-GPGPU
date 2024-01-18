@@ -1,13 +1,15 @@
 #pragma once
 #include <stdlib.h>
 #include <stdio.h>
+#include <stdint.h>
 #include <assert.h>
 #include "matrix.h"
+#include "cuda_fp16.h"
 
 typedef struct
 {
-    unsigned minibatch_size;
-    unsigned number_of_neurons;
+    uint16_t minibatch_size;
+    uint16_t number_of_neurons;
 
     matrix_t *d_weights;
     matrix_t *d_biases;
@@ -20,22 +22,22 @@ typedef struct
 
 typedef struct
 {
-    void (*f)(double *, double *, unsigned, unsigned);
-    void (*fd)(double *, double *, unsigned, unsigned);
-    double alpha;
-    unsigned minibatch_size;
-    unsigned input_size;
-    unsigned number_of_layers;
+    __half alpha;
+    uint16_t minibatch_size;
+    uint16_t input_size;
+    uint16_t number_of_layers;
     layer_t **layers;
     matrix_t *d_one;
     matrix_t *d_oneT;
 } ann_t;
 
-double normalRand(double mu, double sigma);
+void init_weight(matrix_t *w, uint16_t nneurones_prev);
 
-ann_t *create_ann(double alpha, unsigned minibatch_size, unsigned number_of_layers, unsigned *nneurons_per_layer);
+void print_layer(layer_t *layer);
 
-layer_t *create_layer(unsigned l, unsigned number_of_neurons, unsigned nneurons_previous_layer, unsigned minibatch_size);
+ann_t *create_ann(__half alpha, uint16_t minibatch_size, uint16_t number_of_layers, uint16_t *nneurons_per_layer);
+
+layer_t *create_layer(uint16_t l, uint16_t number_of_neurons, uint16_t nneurons_previous_layer, uint16_t minibatch_size);
 
 void set_input(ann_t *nn, matrix_t *input);
 

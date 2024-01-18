@@ -1,53 +1,53 @@
 #include "model_utils.h"
 
-void zero_to_n(unsigned n, unsigned *t)
+void zero_to_n(uint16_t n, uint16_t *t)
 {
-    for (unsigned i = 0; i < n; i++)
+    for (uint16_t i = 0; i < n; i++)
     {
         t[i] = i;
     }
 }
 
-void shuffle(unsigned *t, const unsigned size, const unsigned number_of_switch)
+void shuffle(uint16_t *t, const uint16_t size, const uint16_t number_of_switch)
 {
     zero_to_n(size, t);
-    for (unsigned i = 0; i < number_of_switch; i++)
+    for (uint16_t i = 0; i < number_of_switch; i++)
     {
-        unsigned x = rand() % size;
-        unsigned y = rand() % size;
-        unsigned tmp = t[x];
+        uint16_t x = rand() % size;
+        uint16_t y = rand() % size;
+        uint16_t tmp = t[x];
         t[x] = t[y];
         t[y] = tmp;
     }
 }
 
-double accuracy(image *d_test_img, byte *d_test_label, byte *test_label, unsigned datasize, unsigned minibatch_size, ann_t *nn)
+double accuracy(image *d_test_img, byte *d_test_label, byte *test_label, uint16_t datasize, uint16_t minibatch_size, ann_t *nn)
 {
-    unsigned good = 0;
-    unsigned idx[datasize];
-    double *d_y;
-    double *pred = (double *)malloc(10 * minibatch_size * sizeof(double));
+    uint16_t good = 0;
+    uint16_t idx[datasize];
+    __half *d_y;
+    __half *pred = (__half *)malloc(10 * minibatch_size * sizeof(__half));
 
-    cudaMalloc((void **)&d_y, 10 * minibatch_size * sizeof(double));
+    cudaMalloc((void **)&d_y, 10 * minibatch_size * sizeof(__half));
 
     zero_to_n(datasize, idx);
 
-    for (int i = 0; i < datasize - minibatch_size; i += minibatch_size)
+    for (uint16_t i = 0; i < datasize - minibatch_size; i += minibatch_size)
     {
         gpuPopulateMinibatch(nn->layers[0]->d_activations->m, d_y, &idx[i], minibatch_size, d_test_img, 28 * 28, d_test_label, datasize);
         kernelRetchk;
         forward(nn);
-        cudaMemcpy(pred, nn->layers[nn->number_of_layers - 1]->d_activations->m, 10 * minibatch_size * sizeof(double), cudaMemcpyDeviceToHost);
+        cudaMemcpy(pred, nn->layers[nn->number_of_layers - 1]->d_activations->m, 10 * minibatch_size * sizeof(__half), cudaMemcpyDeviceToHost);
         kernelRetchk;
 
-        for (int col = 0; col < minibatch_size; col++)
+        for (uint16_t col = 0; col < minibatch_size; col++)
         {
-            int idxTrainingData = col + i;
-            double max = 0;
-            unsigned idx_max = 0;
-            for (int row = 0; row < 10; row++)
+            uint16_t idxTrainingData = col + i;
+            __half max = __float2half(0.0f);
+            uint16_t idx_max = 0;
+            for (uint16_t row = 0; row < 10; row++)
             {
-                int idx = col + row * minibatch_size;
+                uint16_t idx = col + row * minibatch_size;
                 if (pred[idx] > max)
                 {
                     max = pred[idx];
@@ -62,47 +62,47 @@ double accuracy(image *d_test_img, byte *d_test_label, byte *test_label, unsigne
     }
     cudaFree(d_y);
 
-    unsigned ntests = (datasize / minibatch_size) * minibatch_size;
+    uint16_t ntests = (datasize / minibatch_size) * minibatch_size;
     return (100.0 * (double)(good) / ntests);
 }
 
-__global__ void populateX(double *x, image *img, unsigned *minibatch_idx, unsigned minibatch_size, unsigned img_size)
+__global__ void populateX(__half *x, image *img, u_int16_t *minibatch_idx, u_int16_t minibatch_size, u_int16_t img_size)
 {
-    int col = blockIdx.x * blockDim.x + threadIdx.x;
-    int row = blockIdx.y * blockDim.y + threadIdx.y;
+    u_int16_t col = blockIdx.x * blockDim.x + threadIdx.x;
+    u_int16_t row = blockIdx.y * blockDim.y + threadIdx.y;
 
     if (col < minibatch_size && row < img_size)
     {
-        x[row * minibatch_size + col] = (double)img[minibatch_idx[col]][row] / 255.0;
+        x[row * minibatch_size + col] = __int2half_rn(img[minibatch_idx[col]][row]) / __float2half(255.0f);
     }
 }
 
-__global__ void populateY(double *y, byte *label, unsigned *minibatch_idx, unsigned minibatch_size, unsigned label_size)
+__global__ void populateY(__half *y, byte *label, u_int16_t *minibatch_idx, u_int16_t minibatch_size, u_int16_t label_size)
 {
-    int col = blockIdx.x * blockDim.x + threadIdx.x;
-    int row = blockIdx.y * blockDim.y + threadIdx.y;
+    u_int16_t col = blockIdx.x * blockDim.x + threadIdx.x;
+    u_int16_t row = blockIdx.y * blockDim.y + threadIdx.y;
 
     if (col < minibatch_size)
     {
         if (row < label_size)
         {
-            y[row * minibatch_size + col] = 0.0;
+            y[row * minibatch_size + col] = __float2half(0.0f);
         }
         if (row == 0)
         {
-            y[label[minibatch_idx[col]] * minibatch_size + col] = 1.0;
+            y[label[minibatch_idx[col]] * minibatch_size + col] = __float2half(1.0f);
         }
     }
 }
 
-void gpuPopulateMinibatch(double *d_x, double *d_y, unsigned *minibatch_idx, unsigned minibatch_size, image *d_img, unsigned img_size, byte *d_label, unsigned datasize)
+void gpuPopulateMinibatch(__half *d_x, __half *d_y, u_int16_t *minibatch_idx, u_int16_t minibatch_size, image *d_img, u_int16_t img_size, byte *d_label, u_int16_t datasize)
 {
-    unsigned *d_minibatch_idx;
+    u_int16_t *d_minibatch_idx;
 
-    cudaMalloc((void **)&d_minibatch_idx, minibatch_size * sizeof(unsigned));
+    cudaMalloc((void **)&d_minibatch_idx, minibatch_size * sizeof(u_int16_t));
     kernelRetchk;
 
-    cudaMemcpy(d_minibatch_idx, minibatch_idx, minibatch_size * sizeof(unsigned), cudaMemcpyHostToDevice);
+    cudaMemcpy(d_minibatch_idx, minibatch_idx, minibatch_size * sizeof(u_int16_t), cudaMemcpyHostToDevice);
     kernelRetchk;
 
     dim3 threadsPerBlockX(THREADS_PER_BLOCK, THREADS_PER_BLOCK);

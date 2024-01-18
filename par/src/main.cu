@@ -1,6 +1,7 @@
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdint.h>
 #include <math.h>
 #include <string.h>
 #include <time.h>
@@ -22,7 +23,7 @@ int main(int argc, char *argv[])
 #endif
     srand(0);
     log_debug("Starting program");
-    unsigned datasize, ntest;
+    uint16_t datasize, ntest;
     log_debug("Reading files");
     image *train_img = read_images("/home/charles/Developer/TP-GPGPU/train-images-idx3-ubyte", &datasize);
     byte *train_label = read_labels("/home/charles/Developer/TP-GPGPU/train-labels-idx1-ubyte", &datasize);
@@ -45,10 +46,10 @@ int main(int argc, char *argv[])
 
     log_debug("Creating neural network");
     ann_t *nn;
-    double alpha = 0.05;
-    unsigned minibatch_size = 16;
-    unsigned number_of_layers = 3;
-    unsigned nneurons_per_layer[3] = {28 * 28, 30, 10};
+    __half alpha = __float2half(0.05);
+    uint16_t minibatch_size = 16;
+    uint16_t number_of_layers = 3;
+    uint16_t nneurons_per_layer[3] = {28 * 28, 30, 10};
     nn = create_ann(alpha, minibatch_size, number_of_layers, nneurons_per_layer);
 #ifdef DEBUG
     print_nn(nn);
@@ -56,9 +57,9 @@ int main(int argc, char *argv[])
 
     log_info("starting accuracy %lf", accuracy(d_test_img, d_test_label, test_label, ntest, minibatch_size, nn));
 
-    unsigned *shuffled_idx = (unsigned *)malloc(datasize * sizeof(unsigned));
-    double *x = (double *)malloc(28 * 28 * minibatch_size * sizeof(double));
-    double *y = (double *)malloc(10 * minibatch_size * sizeof(double));
+    uint16_t *shuffled_idx = (uint16_t *)malloc(datasize * sizeof(uint16_t));
+    __half *x = (__half *)malloc(28 * 28 * minibatch_size * sizeof(__half));
+    __half *y = (__half *)malloc(10 * minibatch_size * sizeof(__half));
     matrix_t *out = cuda_alloc_matrix(10, minibatch_size);
 
     for (int epoch = 0; epoch < 40; epoch++)

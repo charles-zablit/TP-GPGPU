@@ -2,8 +2,10 @@
 
 #include <stdlib.h>
 #include <stdio.h>
+#include <stdint.h>
 #include <assert.h>
-#include <stdbool.h>
+#define __CUDA_NO_HALF_CONVERSIONS__
+#include "cuda_fp16.h"
 
 #define MIN(a, b) (((a) < (b)) ? (a) : (b))
 #define MAX(a, b) (((a) > (b)) ? (a) : (b))
@@ -19,14 +21,14 @@ const int THREAD_SIZE_X = 4;
 
 typedef struct
 {
-    double *m;
-    unsigned columns;
-    unsigned rows;
+    __half *m;
+    uint16_t columns;
+    uint16_t rows;
 } matrix_t;
 
-matrix_t *cuda_alloc_matrix(unsigned rows, unsigned columns);
+matrix_t *cuda_alloc_matrix(uint16_t rows, uint16_t columns);
 
-matrix_t *alloc_matrix(unsigned rows, unsigned columns);
+matrix_t *alloc_matrix(uint16_t rows, uint16_t columns);
 
 void free_matrix(matrix_t *m);
 
@@ -36,37 +38,33 @@ void print_matrix(matrix_t *m, bool is_short);
 
 void cuda_print_matrix(matrix_t *d_m, bool is_short);
 
-__global__ void hadamard_product_kernel(double *A, double *B, double *C, int numRows, int numColumns);
+__global__ void hadamard_product_kernel(__half *A, __half *B, __half *C, uint16_t numRows, uint16_t numColumns);
 
 void hadamard_product(matrix_t *m1, matrix_t *m2, matrix_t *res);
 
-__global__ void matrix_sum_kernel(double *A, double *B, double *C, int numRows, int numColumns);
+__global__ void matrix_sum_kernel(__half *A, __half *B, __half *C, uint16_t numRows, uint16_t numColumns);
 
 void matrix_sum(matrix_t *m1, matrix_t *m2, matrix_t *res);
 
-__global__ void matrix_minus_kernel(double *A, double *B, double *C, int numRows, int numColumns);
+__global__ void matrix_minus_kernel(__half *A, __half *B, __half *C, uint16_t numRows, uint16_t numColumns);
 
 void matrix_minus(matrix_t *m1, matrix_t *m2, matrix_t *res);
 
-__global__ void matrix_minus_inplace(double *A, double *B, int nb_rows, int nb_cols);
+__global__ void matrix_minus_inplace(__half *A, __half *B, uint16_t numRows, uint16_t numColumns);
 
 void matrix_minus_inplace(matrix_t *d_m1, matrix_t *d_m2);
 
-__global__ void matrix_gemm_kernel(double *A, double *B, double *C, double alpha, double beta, int nb_rows_A, int nb_cols_A, int nb_cols_B);
+__global__ void matrix_gemm_kernel(__half *A, __half *B, __half *C, __half alpha, __half beta, uint16_t numRowsA, uint16_t numColumnsA, uint16_t numColumnsB);
 
-void matrix_gemm(matrix_t *d_m1, matrix_t *d_m2, matrix_t *d_res, double alpha = 1.0, double beta = 0.0);
+void matrix_gemm(matrix_t *d_m1, matrix_t *d_m2, matrix_t *d_res, __half alpha = __float2half(1.0f), __half beta = __float2half(0.0f));
 
-__global__ void matrix_function_kernel(double *A, double *B, bool prime, int numRows, int numColumns);
+__global__ void matrix_function_kernel(__half *A, __half *B, bool prime, __half numRows, __half numColumns);
 
 void matrix_function(matrix_t *m1, bool prime, matrix_t *res);
 
-__global__ void matrix_transpose_kernel(double *A, double *B, int numRows, int numColumns);
+__global__ void matrix_transpose_kernel(__half *A, __half *B, uint16_t numRows, uint16_t numColumns);
 
 void matrix_transpose(matrix_t *m1, matrix_t *res);
-
-__global__ void matrix_scalar_kernel(double *A, double s, int numRows, int numColumns);
-
-void matrix_scalar(matrix_t *d_m, double s);
 
 void matrix_memcpy(matrix_t *dest, const matrix_t *src);
 

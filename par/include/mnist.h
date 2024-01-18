@@ -12,6 +12,6 @@ typedef uint8_t byte;
 typedef byte image[28 * 28];
 
 uint32_t make_uint32(byte buffer[]);
-byte *read_labels(const char filename[], unsigned *n);
-image *read_images(const char filename[], unsigned *n);
+byte *read_labels(const char filename[], uint16_t *n);
+image *read_images(const char filename[], uint16_t *n);
 // void draw_image(image img);
