@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <stdint.h>
 #include <assert.h>
+#include <cublas_v2.h>
 #define __CUDA_NO_HALF_CONVERSIONS__
 #include "cuda_fp16.h"
 
@@ -12,7 +13,7 @@
 #define CEIL_DIV(M, N) (((M) + (N)-1) / (N))
 #define OFFSET(row, col, ld) ((row) * (ld) + (col))
 
-const int THREADS_PER_BLOCK = 8;
+const int THREADS_PER_BLOCK = 32;
 const int BLOCK_SIZE_M = 24;
 const int BLOCK_SIZE_K = 16;
 const int BLOCK_SIZE_N = 16;
@@ -50,13 +51,9 @@ __global__ void matrix_minus_kernel(__half *A, __half *B, __half *C, uint16_t nu
 
 void matrix_minus(matrix_t *m1, matrix_t *m2, matrix_t *res);
 
-__global__ void matrix_minus_inplace(__half *A, __half *B, uint16_t numRows, uint16_t numColumns);
-
-void matrix_minus_inplace(matrix_t *d_m1, matrix_t *d_m2);
-
 __global__ void matrix_gemm_kernel(__half *A, __half *B, __half *C, __half alpha, __half beta, uint16_t numRowsA, uint16_t numColumnsA, uint16_t numColumnsB);
 
-void matrix_gemm(matrix_t *d_m1, matrix_t *d_m2, matrix_t *d_res, __half alpha = __float2half(1.0f), __half beta = __float2half(0.0f));
+void matrix_gemm(cublasHandle_t *handle, matrix_t *d_m1, matrix_t *d_m2, matrix_t *d_res, cublasOperation_t t_m1 = CUBLAS_OP_N, cublasOperation_t t_m2 = CUBLAS_OP_N, __half alpha = __float2half(1.0f), __half beta = __float2half(0.0f));
 
 __global__ void matrix_function_kernel(__half *A, __half *B, bool prime, __half numRows, __half numColumns);
 

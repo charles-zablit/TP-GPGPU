@@ -29,6 +29,7 @@ typedef struct
     layer_t **layers;
     matrix_t *d_one;
     matrix_t *d_oneT;
+    cublasHandle_t handle;
 } ann_t;
 
 void init_weight(matrix_t *w, uint16_t nneurones_prev);

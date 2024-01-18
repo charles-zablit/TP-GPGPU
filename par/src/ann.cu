@@ -41,6 +41,7 @@ ann_t *create_ann(__half alpha, uint16_t minibatch_size, uint16_t number_of_laye
     init_ones(nn->d_one);
     nn->d_oneT = cuda_alloc_matrix(nn->minibatch_size, 1);
     init_ones(nn->d_oneT);
+    cublasCreate(&nn->handle);
 
     log_debug("Creating layer [%d/%d]", 0, number_of_layers - 1);
     nn->layers[0] = create_layer(0, nneurons_per_layer[0], minibatch_size, minibatch_size);
@@ -112,9 +113,9 @@ void forward(ann_t *nn)
     const __half one = __float2half(1.0f);
     for (uint16_t l = 1; l < nn->number_of_layers; l++)
     {
-        matrix_gemm(nn->layers[l]->d_biases, nn->d_one, nn->layers[l]->d_z);                                   // d_z^l <- b^l x 1
-        matrix_gemm(nn->layers[l]->d_weights, nn->layers[l - 1]->d_activations, nn->layers[l]->d_z, one, one); // d_z^l <- w^l x a^(l-1) + d_z^l <=> d_z^l <- w^l x a^(l-1) + b^l x 1
-        matrix_function(nn->layers[l]->d_z, false, nn->layers[l]->d_activations);                              // a^l = f(d_z^l)
+        matrix_gemm(&nn->handle, nn->layers[l]->d_biases, nn->d_one, nn->layers[l]->d_z);                                                             // d_z^l <- b^l x 1
+        matrix_gemm(&nn->handle, nn->layers[l]->d_weights, nn->layers[l - 1]->d_activations, nn->layers[l]->d_z, CUBLAS_OP_N, CUBLAS_OP_N, one, one); // d_z^l <- w^l x a^(l-1) + d_z^l <=> d_z^l <- w^l x a^(l-1) + b^l x 1
+        matrix_function(nn->layers[l]->d_z, false, nn->layers[l]->d_activations);                                                                     // a^l = f(d_z^l)
     }
 }
 
@@ -132,17 +133,14 @@ void backward(ann_t *nn, matrix_t *y)
 
     for (uint16_t l = L; l > 1; l--)
     {
-        matrix_t *d_tw, *d_delta_tmp, *d_dfz;
-        d_tw = cuda_alloc_matrix(nn->layers[l - 1]->number_of_neurons, nn->layers[l]->number_of_neurons);
+        matrix_t *d_delta_tmp, *d_dfz;
         d_delta_tmp = cuda_alloc_matrix(nn->layers[l - 1]->number_of_neurons, nn->minibatch_size);
         d_dfz = cuda_alloc_matrix(nn->layers[l - 1]->number_of_neurons, nn->minibatch_size);
 
-        matrix_transpose(nn->layers[l]->d_weights, d_tw);                 // (w^l)T
-        matrix_gemm(d_tw, nn->layers[l]->d_delta, d_delta_tmp);           // (w^l)T x delta^l
-        matrix_function(nn->layers[l - 1]->d_z, true, d_dfz);             // f'(d_z^(l-1))
-        hadamard_product(d_delta_tmp, d_dfz, nn->layers[l - 1]->d_delta); // delta^(l-1) = (w^l)T x delta^l o f'(d_z^(l-1))
+        matrix_gemm(&nn->handle, nn->layers[l]->d_weights, nn->layers[l]->d_delta, d_delta_tmp, CUBLAS_OP_T); // (w^l)T x delta^l
+        matrix_function(nn->layers[l - 1]->d_z, true, d_dfz);                                                 // f'(d_z^(l-1))
+        hadamard_product(d_delta_tmp, d_dfz, nn->layers[l - 1]->d_delta);                                     // delta^(l-1) = (w^l)T x delta^l o f'(d_z^(l-1))
 
-        cuda_free_matrix(d_tw);
         cuda_free_matrix(d_delta_tmp);
         cuda_free_matrix(d_dfz);
     }
@@ -153,11 +151,11 @@ void backward(ann_t *nn, matrix_t *y)
         matrix_t *d_ta;
         d_ta = cuda_alloc_matrix(nn->minibatch_size, nn->layers[l - 1]->number_of_neurons);
 
-        matrix_transpose(nn->layers[l - 1]->d_activations, d_ta);                                                                 // ta <- (a^(l-1))^T
-        matrix_gemm(nn->layers[l]->d_delta, d_ta, nn->layers[l]->d_weights, -nn->alpha / __double2half(nn->minibatch_size), one); // w^l <- w^l - alpha /m . delta^l x (a^(l-1))^T
+        matrix_transpose(nn->layers[l - 1]->d_activations, d_ta);                                                                                                        // ta <- (a^(l-1))^T
+        matrix_gemm(&nn->handle, nn->layers[l]->d_delta, d_ta, nn->layers[l]->d_weights, CUBLAS_OP_N, CUBLAS_OP_N, -nn->alpha / __double2half(nn->minibatch_size), one); // w^l <- w^l - alpha /m . delta^l x (a^(l-1))^T
 
         cuda_free_matrix(d_ta);
 
-        matrix_gemm(nn->layers[l]->d_delta, nn->d_oneT, nn->layers[l]->d_biases, -nn->alpha / __double2half(nn->minibatch_size), one);
+        matrix_gemm(&nn->handle, nn->layers[l]->d_delta, nn->d_oneT, nn->layers[l]->d_biases, CUBLAS_OP_N, CUBLAS_OP_N, -nn->alpha / __double2half(nn->minibatch_size), one);
     }
 }

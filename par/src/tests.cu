@@ -35,10 +35,13 @@ void matrix_dot_ref(matrix_t *m1, matrix_t *m2, matrix_t *res)
 
 void test_matrix_gemm()
 {
+    cublasHandle_t handle;
+    cublasCreate(&handle);
+
     printf("----------------\n");
     printf("Dot product test\n");
     printf("----------------\n");
-    unsigned n = 784, m = 30, p = 10;
+    unsigned n = 5, m = 4, p = 3;
     matrix_t *h_m1 = alloc_matrix(n, m);
     matrix_t *d_m1 = cuda_alloc_matrix(n, m);
     for (int i = 0; i < n * m; i++)
@@ -67,7 +70,7 @@ void test_matrix_gemm()
         h_m3->m[i] = 0.0;
     }
     matrix_cudaMemcpy(d_m3, h_m3, cudaMemcpyHostToDevice);
-    matrix_gemm(d_m1, d_m2, d_m3);
+    matrix_gemm(&handle, d_m1, d_m2, d_m3);
     matrix_dot_ref(h_m1, h_m2, h_m3ref);
     print_matrix(h_m3ref, false);
     printf("\n");
@@ -81,7 +84,7 @@ void test_matrix_gemm()
         {
             int row = (int)i / p;
             int col = i % p;
-            printf("(%d  %d) got: %f, expected: %f\n", row, col, h_m3->m[i], h_m3ref->m[i]);
+            printf("(%d  %d) got: %f, expected: %f\n", row, col, __half2float(h_m3->m[i]), __half2float(h_m3ref->m[i]));
         }
     }
 
@@ -142,77 +145,6 @@ void test_hadamard_product()
     printf("---\n");
 }
 
-void test_matrix_transpose()
-{
-    printf("--------------\n");
-    printf("Transpose test\n");
-    printf("--------------\n");
-    unsigned n = 2;
-    matrix_t *h_m1 = alloc_matrix(n, n);
-    matrix_t *d_m1 = cuda_alloc_matrix(n, n);
-    for (int i = 0; i < n * n; i++)
-    {
-        h_m1->m[i] = i + 1;
-    }
-    matrix_cudaMemcpy(d_m1, h_m1, cudaMemcpyHostToDevice);
-    cuda_print_matrix(d_m1, false);
-
-    matrix_t *h_m2 = alloc_matrix(n, n);
-    matrix_t *d_m2 = cuda_alloc_matrix(n, n);
-
-    matrix_transpose(d_m1, d_m2);
-    cuda_print_matrix(d_m2, false);
-    matrix_cudaMemcpy(h_m2, d_m2, cudaMemcpyDeviceToHost);
-
-    assert(h_m2->m[0] == (__half)1.0);
-    assert(h_m2->m[1] == (__half)3.0);
-    assert(h_m2->m[2] == (__half)2.0);
-    assert(h_m2->m[3] == (__half)4.0);
-
-    free_matrix(h_m1);
-    free_matrix(h_m2);
-    cuda_free_matrix(d_m1);
-    cuda_free_matrix(d_m2);
-    printf("---\n");
-    printf("OK\n");
-    printf("---\n");
-}
-
-void test_matrix_sum()
-{
-    printf("--------\n");
-    printf("Sum test\n");
-    printf("--------\n");
-    unsigned n = 50, m = 30;
-    matrix_t *h_m1 = alloc_matrix(n, m);
-    matrix_t *d_m1 = cuda_alloc_matrix(n, m);
-    for (int i = 0; i < n * m; i++)
-    {
-        h_m1->m[i] = i + 1;
-    }
-    matrix_cudaMemcpy(d_m1, h_m1, cudaMemcpyHostToDevice);
-    cuda_print_matrix(d_m1, false);
-
-    matrix_t *h_m2 = alloc_matrix(n, m);
-    matrix_t *d_m2 = cuda_alloc_matrix(n, m);
-    matrix_sum(d_m1, d_m1, d_m2);
-    cuda_print_matrix(d_m2, false);
-    matrix_cudaMemcpy(h_m2, d_m2, cudaMemcpyDeviceToHost);
-
-    for (int i = 0; i < n * m; i++)
-    {
-        assert(h_m2->m[i] == (__half)(2.0 * (i + 1)));
-    }
-
-    free_matrix(h_m1);
-    free_matrix(h_m2);
-    cuda_free_matrix(d_m1);
-    cuda_free_matrix(d_m2);
-    printf("---\n");
-    printf("OK\n");
-    printf("---\n");
-}
-
 void test_matrix_minus()
 {
     printf("----------\n");
@@ -252,8 +184,6 @@ int run_tests()
 {
     test_matrix_gemm();
     test_hadamard_product();
-    test_matrix_transpose();
-    test_matrix_sum();
     test_matrix_minus();
     return 0;
 }

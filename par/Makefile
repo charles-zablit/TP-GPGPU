@@ -12,7 +12,7 @@ OBJ := $(patsubst $(SRC_DIR)/%.cu, $(OBJ_DIR)/%.o, $(SRC))
 
 CPPFLAGS := -Iinclude
 LDFLAGS  := -Llib
-LDLIBS   := -lm
+LDLIBS   := -lm -lcublas -lcudart
 ARCH := -arch=sm_60
 EXTRA_FLAGS :=
 

@@ -60,7 +60,7 @@ void print_matrix(matrix_t *m, bool is_short)
         printf("|");
         for (int col = 0; col < lim_col; col++)
         {
-            printf("%.2lf ", m->m[col + row * m->columns]);
+            printf("%.2lf ", __half2float(m->m[col + row * m->columns]));
         }
         if (is_short && lim_col != m->columns)
             printf("...");
@@ -105,31 +105,6 @@ void hadamard_product(matrix_t *d_m1, matrix_t *d_m2, matrix_t *d_res)
     kernelRetchk;
 }
 
-__global__ void matrix_sum_kernel(__half *A, __half *B, __half *C, uint16_t numRows, uint16_t numColumns)
-{
-    uint16_t row = blockIdx.y * blockDim.y + threadIdx.y;
-    uint16_t col = blockIdx.x * blockDim.x + threadIdx.x;
-    if (row < numRows && col < numColumns)
-    {
-        C[row * numColumns + col] = A[row * numColumns + col] + B[row * numColumns + col];
-    }
-}
-
-void matrix_sum(matrix_t *d_m1, matrix_t *d_m2, matrix_t *d_res)
-{
-    assert((d_m1->columns == d_m2->columns) &&
-           (d_m1->columns == d_res->columns) &&
-           (d_m1->rows == d_m2->rows) &&
-           (d_m1->rows == d_res->rows));
-
-    dim3 threadsPerBlock(THREADS_PER_BLOCK, THREADS_PER_BLOCK);
-    dim3 blocksPerGrid((d_m1->columns + threadsPerBlock.x - 1) / threadsPerBlock.x,
-                       (d_m1->rows + threadsPerBlock.y - 1) / threadsPerBlock.y);
-
-    matrix_sum_kernel<<<blocksPerGrid, threadsPerBlock>>>(d_m1->m, d_m2->m, d_res->m, d_res->rows, d_res->columns);
-    kernelRetchk;
-}
-
 __global__ void matrix_minus_kernel(__half *A, __half *B, __half *C, uint16_t numRows, uint16_t numColumns)
 {
     uint16_t row = blockIdx.y * blockDim.y + threadIdx.y;
@@ -155,160 +130,24 @@ void matrix_minus(matrix_t *d_m1, matrix_t *d_m2, matrix_t *d_res)
     kernelRetchk;
 }
 
-__global__ void matrix_minus_inplace(__half *A, __half *B, uint16_t numRows, uint16_t numColumns)
+void matrix_gemm(cublasHandle_t *handle, matrix_t *d_m1, matrix_t *d_m2, matrix_t *d_res, cublasOperation_t t_m1, cublasOperation_t t_m2, __half alpha, __half beta)
 {
-    uint16_t row = blockIdx.y * blockDim.y + threadIdx.y;
-    uint16_t col = blockIdx.x * blockDim.x + threadIdx.x;
-    if (row < numRows && col < numColumns)
-    {
-        A[row * numColumns + col] -= B[row * numColumns + col];
-    }
-}
+    const int m = t_m1 == CUBLAS_OP_T ? d_m1->columns : d_m1->rows;
+    const int n = t_m2 == CUBLAS_OP_T ? d_m2->rows : d_m2->columns;
+    const int k = t_m1 == CUBLAS_OP_T ? d_m1->rows : d_m1->columns;
 
-void matrix_minus_inplace(matrix_t *d_m1, matrix_t *d_m2)
-{
-    assert((d_m1->columns == d_m2->columns) &&
-           (d_m1->rows == d_m2->rows));
+    assert((m == d_res->rows) &&
+           (n == d_res->columns));
 
-    dim3 threadsPerBlock(THREADS_PER_BLOCK, THREADS_PER_BLOCK);
-    dim3 blocksPerGrid((d_m1->columns + threadsPerBlock.x - 1) / threadsPerBlock.x,
-                       (d_m1->rows + threadsPerBlock.y - 1) / threadsPerBlock.y);
-
-    matrix_minus_inplace<<<blocksPerGrid, threadsPerBlock>>>(d_m1->m, d_m2->m, d_m1->rows, d_m1->columns);
-    kernelRetchk;
-}
-
-__global__ void matrix_gemm_kernel(__half *A, __half *B, __half *C, __half alpha, __half beta, uint16_t numRowsA, uint16_t numColumnsA, uint16_t numColumnsB)
-{
-    // size of thread block
-    const uint16_t bszx = BLOCK_SIZE_N / THREAD_SIZE_X;
-    const uint16_t bszy = BLOCK_SIZE_M / THREAD_SIZE_Y;
-    const uint16_t THREAD_NUM_PER_BLOCK = bszy * bszx;
-
-    // thread id
-    const uint16_t tid = threadIdx.y * bszx + threadIdx.x;
-
-    // shared memory
-    __shared__ __half As[BLOCK_SIZE_M][BLOCK_SIZE_K]; // avoid bank conflict
-    __shared__ __half Bs[BLOCK_SIZE_K][BLOCK_SIZE_N];
-
-    __half accum[THREAD_SIZE_Y][THREAD_SIZE_X] = {__float2half(0.0f)};
-
-    const uint16_t A_TILE_ROW = tid / BLOCK_SIZE_K;
-    const uint16_t B_TILE_ROW = tid / BLOCK_SIZE_N;
-
-    const uint16_t A_TILE_COL = tid % BLOCK_SIZE_K;
-    const uint16_t B_TILE_COL = tid % BLOCK_SIZE_N;
-
-    const uint16_t A_TILE_ROW_STRIDE = THREAD_NUM_PER_BLOCK / BLOCK_SIZE_K;
-    const uint16_t B_TILE_ROW_STRIDE = THREAD_NUM_PER_BLOCK / BLOCK_SIZE_N;
-
-    const uint16_t A_S = BLOCK_SIZE_M / THREAD_SIZE_Y;
-    const uint16_t B_S = BLOCK_SIZE_N / THREAD_SIZE_X;
-
-    for (uint16_t tile_idx = 0; tile_idx < numColumnsA; tile_idx += BLOCK_SIZE_K)
-    {
-        // load A from global memory to shared memory
-#pragma unroll
-        for (uint16_t i = 0; i < BLOCK_SIZE_M; i += A_TILE_ROW_STRIDE)
-        {
-            const uint16_t row = BLOCK_SIZE_M * blockIdx.y + i + A_TILE_ROW;
-            const uint16_t col = A_TILE_COL + tile_idx;
-            if (blockIdx.x == gridDim.x - 1 || blockIdx.y == gridDim.y - 1)
-            {
-                As[i + A_TILE_ROW][A_TILE_COL] = row < numRowsA && col < numColumnsA ? A[OFFSET(
-                                                                                           row, // row
-                                                                                           col, // col
-                                                                                           numColumnsA)]
-                                                                                     : __float2half(0.0f);
-            }
-            else
-            {
-                As[i + A_TILE_ROW][A_TILE_COL] = A[OFFSET(
-                    row, // row
-                    col, // col
-                    numColumnsA)];
-            }
-        }
-
-        // load B from global memory to shared memory
-#pragma unroll
-        for (uint16_t i = 0; i < BLOCK_SIZE_K; i += B_TILE_ROW_STRIDE)
-        {
-            const uint16_t row = tile_idx + i + B_TILE_ROW;
-            const uint16_t col = B_TILE_COL + BLOCK_SIZE_N * blockIdx.x;
-            if (blockIdx.x == gridDim.x - 1 || blockIdx.y == gridDim.y - 1)
-            {
-                Bs[i + B_TILE_ROW][B_TILE_COL] = row < numColumnsA && col < numColumnsB ? B[OFFSET(
-                                                                                              row, // row
-                                                                                              col, // col
-                                                                                              numColumnsB)]
-                                                                                        : __float2half(0.0f);
-            }
-            else
-            {
-                Bs[i + B_TILE_ROW][B_TILE_COL] = B[OFFSET(
-                    row, // row
-                    col, // col
-                    numColumnsB)];
-            }
-        }
-
-        __syncthreads();
-
-        // compute c
-#pragma unroll
-        for (uint16_t k = 0; k < BLOCK_SIZE_K; ++k)
-        {
-#pragma unroll
-            for (uint16_t thread_y = 0; thread_y < THREAD_SIZE_Y; ++thread_y)
-            {
-#pragma unroll
-                for (uint16_t thread_x = 0; thread_x < THREAD_SIZE_X; ++thread_x)
-                {
-                    // accum[thread_y][thread_x] += frag_a[thread_y] * frag_b[thread_x];
-                    accum[thread_y][thread_x] += As[thread_y * A_S + threadIdx.y][k] * Bs[k][thread_x * B_S + threadIdx.x];
-                }
-            }
-        }
-        __syncthreads();
-    }
-
-    // store back to C
-#pragma unroll
-    for (uint16_t thread_y = 0; thread_y < THREAD_SIZE_Y; ++thread_y)
-    {
-#pragma unroll
-        for (uint16_t thread_x = 0; thread_x < THREAD_SIZE_X; ++thread_x)
-        {
-            const uint16_t row = BLOCK_SIZE_M * blockIdx.y + thread_y * A_S + threadIdx.y;
-            const uint16_t col = BLOCK_SIZE_N * blockIdx.x + thread_x * B_S + threadIdx.x;
-            if (blockIdx.x == gridDim.x - 1 || blockIdx.y == gridDim.y - 1)
-            {
-                if (row < numRowsA && col < numColumnsB)
-                {
-                    C[OFFSET(row, col, numColumnsB)] = C[OFFSET(row, col, numColumnsB)] * beta + accum[thread_y][thread_x] * alpha;
-                }
-            }
-            else
-            {
-                C[OFFSET(row, col, numColumnsB)] = C[OFFSET(row, col, numColumnsB)] * beta + accum[thread_y][thread_x] * alpha;
-            }
-        }
-    }
-}
-
-void matrix_gemm(matrix_t *d_m1, matrix_t *d_m2, matrix_t *d_res, __half alpha, __half beta)
-{
-    assert((d_m1->columns == d_m2->rows) &&
-           (d_m1->rows == d_res->rows) &&
-           (d_m2->columns == d_res->columns));
-
-    dim3 threadsPerBlock(BLOCK_SIZE_N / THREAD_SIZE_X, BLOCK_SIZE_M / THREAD_SIZE_Y);
-    dim3 blocksPerGrid(CEIL_DIV(d_res->columns, BLOCK_SIZE_N), CEIL_DIV(d_res->rows, BLOCK_SIZE_M));
-
-    matrix_gemm_kernel<<<blocksPerGrid, threadsPerBlock>>>(d_m1->m, d_m2->m, d_res->m, alpha, beta, d_res->rows, d_m1->columns, d_res->columns);
-    kernelRetchk;
+    CUBLAS_CHECK(cublasHgemm(*handle,
+                             t_m2,
+                             t_m1,
+                             n, m, k,
+                             &alpha,
+                             d_m2->m, d_res->columns,
+                             d_m1->m, d_m1->columns,
+                             &beta,
+                             d_res->m, d_res->columns));
 }
 
 __global__ void matrix_function_kernel(__half *A, __half *B, bool prime, uint16_t numRows, uint16_t numColumns)
