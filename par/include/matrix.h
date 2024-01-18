@@ -5,7 +5,17 @@
 #include <assert.h>
 #include <stdbool.h>
 
+#define MIN(a, b) (((a) < (b)) ? (a) : (b))
+#define MAX(a, b) (((a) > (b)) ? (a) : (b))
+#define CEIL_DIV(M, N) (((M) + (N)-1) / (N))
+#define OFFSET(row, col, ld) ((row) * (ld) + (col))
+
 const int THREADS_PER_BLOCK = 8;
+const int BLOCK_SIZE_M = 24;
+const int BLOCK_SIZE_K = 16;
+const int BLOCK_SIZE_N = 16;
+const int THREAD_SIZE_Y = 6;
+const int THREAD_SIZE_X = 4;
 
 typedef struct
 {
@@ -42,9 +52,9 @@ __global__ void matrix_minus_inplace(double *A, double *B, int nb_rows, int nb_c
 
 void matrix_minus_inplace(matrix_t *d_m1, matrix_t *d_m2);
 
-__global__ void matrix_gemm_kernel(double *A, double *B, double *C, float alpha, float beta, int nb_rows_A, int nb_cols_A, int nb_cols_B);
+__global__ void matrix_gemm_kernel(double *A, double *B, double *C, double alpha, double beta, int nb_rows_A, int nb_cols_A, int nb_cols_B);
 
-void matrix_gemm(matrix_t *d_m1, matrix_t *d_m2, matrix_t *d_res, float alpha = 1.0, float beta = 0.0);
+void matrix_gemm(matrix_t *d_m1, matrix_t *d_m2, matrix_t *d_res, double alpha = 1.0, double beta = 0.0);
 
 __global__ void matrix_function_kernel(double *A, double *B, bool prime, int numRows, int numColumns);
 

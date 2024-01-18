@@ -18,6 +18,7 @@ int main(int argc, char *argv[])
 #ifdef DEBUG
     setvbuf(stdout, NULL, _IOLBF, 0);
     run_tests();
+    return;
 #endif
     srand(0);
     log_debug("Starting program");

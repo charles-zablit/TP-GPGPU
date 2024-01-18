@@ -4,10 +4,6 @@
 #include "matrix.h"
 #include <string.h>
 
-#define MIN(a, b) (((a) < (b)) ? (a) : (b))
-#define MAX(a, b) (((a) > (b)) ? (a) : (b))
-#define CEIL_DIV(M, N) (((M) + (N)-1) / (N))
-
 matrix_t *cuda_alloc_matrix(unsigned rows, unsigned columns)
 {
     matrix_t *g_res = (matrix_t *)malloc(sizeof(matrix_t));
@@ -183,36 +179,137 @@ void matrix_minus_inplace(matrix_t *d_m1, matrix_t *d_m2)
     kernelRetchk;
 }
 
-__global__ void matrix_gemm_kernel(double *A, double *B, double *C, float alpha, float beta, int nb_rows_A, int nb_cols_A, int nb_rows_B)
+__global__ void matrix_gemm_kernel(double *A, double *B, double *C, double alpha, double beta, int M, int K, int N)
 {
-    // global memory coalescing in thread assignments
-    // see: https://siboehm.com/articles/22/CUDA-MMM#:~:text=Kernel%202%3A%20Global%20Memory%20Coalescing
-    const unsigned cRow = blockIdx.x * THREADS_PER_BLOCK + (threadIdx.x / THREADS_PER_BLOCK);
-    const unsigned cCol = blockIdx.y * THREADS_PER_BLOCK + (threadIdx.x % THREADS_PER_BLOCK);
 
-    if (cRow < nb_rows_A && cCol < nb_rows_B)
+    // size of thread block
+    const int bszx = BLOCK_SIZE_N / THREAD_SIZE_X;
+    const int bszy = BLOCK_SIZE_M / THREAD_SIZE_Y;
+    const int THREAD_NUM_PER_BLOCK = bszy * bszx;
+
+    // thread id
+    const int tid = threadIdx.y * bszx + threadIdx.x;
+
+    // shared memory
+    __shared__ double As[BLOCK_SIZE_M][BLOCK_SIZE_K]; // avoid bank conflict
+    __shared__ double Bs[BLOCK_SIZE_K][BLOCK_SIZE_N];
+
+    double accum[THREAD_SIZE_Y][THREAD_SIZE_X] = {0};
+
+    const int A_TILE_ROW = tid / BLOCK_SIZE_K;
+    const int B_TILE_ROW = tid / BLOCK_SIZE_N;
+
+    const int A_TILE_COL = tid % BLOCK_SIZE_K;
+    const int B_TILE_COL = tid % BLOCK_SIZE_N;
+
+    const int A_TILE_ROW_STRIDE = THREAD_NUM_PER_BLOCK / BLOCK_SIZE_K;
+    const int B_TILE_ROW_STRIDE = THREAD_NUM_PER_BLOCK / BLOCK_SIZE_N;
+
+    const int A_S = BLOCK_SIZE_M / THREAD_SIZE_Y;
+    const int B_S = BLOCK_SIZE_N / THREAD_SIZE_X;
+
+    for (int tile_idx = 0; tile_idx < K; tile_idx += BLOCK_SIZE_K)
     {
-        float tmp = 0.0;
-        for (int i = 0; i < nb_cols_A; ++i)
+        // load A from global memory to shared memory
+#pragma unroll
+        for (int i = 0; i < BLOCK_SIZE_M; i += A_TILE_ROW_STRIDE)
         {
-            tmp += A[cRow * nb_cols_A + i] * B[i * nb_rows_B + cCol];
+            const int row = BLOCK_SIZE_M * blockIdx.y + i + A_TILE_ROW;
+            const int col = A_TILE_COL + tile_idx;
+            if (blockIdx.x == gridDim.x - 1 || blockIdx.y == gridDim.y - 1)
+            {
+                As[i + A_TILE_ROW][A_TILE_COL] = row < M && col < K ? A[OFFSET(
+                                                                          row, // row
+                                                                          col, // col
+                                                                          K)]
+                                                                    : 0;
+            }
+            else
+            {
+                As[i + A_TILE_ROW][A_TILE_COL] = A[OFFSET(
+                    row, // row
+                    col, // col
+                    K)];
+            }
         }
-        C[cRow * nb_rows_B + cCol] = alpha * tmp + beta * C[cRow * nb_rows_B + cCol];
+
+        // load B from global memory to shared memory
+#pragma unroll
+        for (int i = 0; i < BLOCK_SIZE_K; i += B_TILE_ROW_STRIDE)
+        {
+            const int row = tile_idx + i + B_TILE_ROW;
+            const int col = B_TILE_COL + BLOCK_SIZE_N * blockIdx.x;
+            if (blockIdx.x == gridDim.x - 1 || blockIdx.y == gridDim.y - 1)
+            {
+                Bs[i + B_TILE_ROW][B_TILE_COL] = row < K && col < N ? B[OFFSET(
+                                                                          row, // row
+                                                                          col, // col
+                                                                          N)]
+                                                                    : 0;
+            }
+            else
+            {
+                Bs[i + B_TILE_ROW][B_TILE_COL] = B[OFFSET(
+                    row, // row
+                    col, // col
+                    N)];
+            }
+        }
+
+        __syncthreads();
+
+        // compute c
+#pragma unroll
+        for (int k = 0; k < BLOCK_SIZE_K; ++k)
+        {
+#pragma unroll
+            for (int thread_y = 0; thread_y < THREAD_SIZE_Y; ++thread_y)
+            {
+#pragma unroll
+                for (int thread_x = 0; thread_x < THREAD_SIZE_X; ++thread_x)
+                {
+                    // accum[thread_y][thread_x] += frag_a[thread_y] * frag_b[thread_x];
+                    accum[thread_y][thread_x] += As[thread_y * A_S + threadIdx.y][k] * Bs[k][thread_x * B_S + threadIdx.x];
+                }
+            }
+        }
+        __syncthreads();
+    }
+
+    // store back to C
+#pragma unroll
+    for (int thread_y = 0; thread_y < THREAD_SIZE_Y; ++thread_y)
+    {
+#pragma unroll
+        for (int thread_x = 0; thread_x < THREAD_SIZE_X; ++thread_x)
+        {
+            const int row = BLOCK_SIZE_M * blockIdx.y + thread_y * A_S + threadIdx.y;
+            const int col = BLOCK_SIZE_N * blockIdx.x + thread_x * B_S + threadIdx.x;
+            if (blockIdx.x == gridDim.x - 1 || blockIdx.y == gridDim.y - 1)
+            {
+                if (row < M && col < N)
+                {
+                    C[OFFSET(row, col, N)] = C[OFFSET(row, col, N)] * beta + accum[thread_y][thread_x] * alpha;
+                }
+            }
+            else
+            {
+                C[OFFSET(row, col, N)] = C[OFFSET(row, col, N)] * beta + accum[thread_y][thread_x] * alpha;
+            }
+        }
     }
 }
 
-void matrix_gemm(matrix_t *d_m1, matrix_t *d_m2, matrix_t *d_res, float alpha, float beta)
+void matrix_gemm(matrix_t *d_m1, matrix_t *d_m2, matrix_t *d_res, double alpha, double beta)
 {
     assert((d_m1->columns == d_m2->rows) &&
            (d_m1->rows == d_res->rows) &&
            (d_m2->columns == d_res->columns));
 
-    // global memory coalescing in thread assignments
-    // see: https://siboehm.com/articles/22/CUDA-MMM#:~:text=Kernel%202%3A%20Global%20Memory%20Coalescing
-    dim3 threadsPerBlock(THREADS_PER_BLOCK * THREADS_PER_BLOCK);
-    dim3 blocksPerGrid(CEIL_DIV(d_m1->rows, THREADS_PER_BLOCK), CEIL_DIV(d_m2->columns, THREADS_PER_BLOCK));
+    dim3 threadsPerBlock(BLOCK_SIZE_N / THREAD_SIZE_X, BLOCK_SIZE_M / THREAD_SIZE_Y);
+    dim3 blocksPerGrid(CEIL_DIV(d_res->columns, BLOCK_SIZE_N), CEIL_DIV(d_res->rows, BLOCK_SIZE_M));
 
-    matrix_gemm_kernel<<<blocksPerGrid, threadsPerBlock>>>(d_m1->m, d_m2->m, d_res->m, alpha, beta, d_m1->rows, d_m1->columns, d_m2->columns);
+    matrix_gemm_kernel<<<blocksPerGrid, threadsPerBlock>>>(d_m1->m, d_m2->m, d_res->m, alpha, beta, d_res->rows, d_m1->columns, d_res->columns);
     kernelRetchk;
 }
 
